@@ -2,3 +2,6 @@ defaultNamespace: potamap
 keepResources: true
 correctDrift:
   enabled: true
+helm:
+  releaseName: pota-api
+  takeOwnership: true

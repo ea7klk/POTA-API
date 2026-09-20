@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: pota-api
   namespace: potamap
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     app.kubernetes.io/name: pota-api
     app.kubernetes.io/part-of: potamap
@@ -69,6 +71,8 @@ kind: Service
 metadata:
   name: pota-api
   namespace: potamap
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     app.kubernetes.io/name: pota-api
     app.kubernetes.io/part-of: potamap
