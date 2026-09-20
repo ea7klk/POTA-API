@@ -1,0 +1,15 @@
+{
+  "name": "pota-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Internal POTA park and spot API for Potamap.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,33 @@
+import http from 'node:http';
+import { parseParkCsv } from './csv.js';
+import { createStore } from './store.js';
+import { createApi } from './api.js';
+
+const port = Number(process.env.PORT ?? 3000);
+const store = createStore({
+  parseParkCsv,
+  parksUrl: process.env.POTA_PARKS_URL,
+  spotsUrl: process.env.POTA_SPOTS_URL,
+  refreshMs: Number(process.env.PARK_REFRESH_MS ?? 6 * 60 * 60 * 1000),
+  fetchTimeoutMs: Number(process.env.FETCH_TIMEOUT_MS ?? 20_000),
+});
+const handler = createApi({ store });
+const server = http.createServer(handler);
+
+server.listen(port, '0.0.0.0', async () => {
+  try {
+    await store.refreshParks();
+    store.start();
+    console.log(`POTA API listening on ${port}; parks updated at ${store.status().csvUpdatedAt}`);
+  } catch (error) {
+    console.error(`Unable to load POTA parks at startup: ${error.message}`);
+    process.exitCode = 1;
+  }
+});
+
+function shutdown(signal) {
+  console.log(`${signal}: shutting down`);
+  server.close(() => process.exit(0));
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
