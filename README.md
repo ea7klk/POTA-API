@@ -20,6 +20,8 @@ npm test
 npm start
 ```
 
+Inside Kubernetes, use `http://pota-api.potamap.svc.cluster.local:80` (or omit `:80`). The Service listens on port 80 and forwards to the Node.js container on port 3000.
+
 Configuration is available through environment variables:
 
 - `PORT` (default `3000`)
