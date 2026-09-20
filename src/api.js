@@ -1,3 +1,8 @@
+import { gzip } from 'node:zlib';
+import { promisify } from 'node:util';
+
+const gzipAsync = promisify(gzip);
+
 function numberParam(value, name) {
   const number = Number(value);
   if (!Number.isFinite(number)) throw new Error(`Query parameter ${name} must be a number`);
@@ -27,6 +32,20 @@ function parkFeature(park) {
   };
 }
 
+async function sendJson(request, response, statusCode, payload, cacheControl = 'no-store') {
+  const body = Buffer.from(JSON.stringify(payload));
+  response.setHeader('Cache-Control', cacheControl);
+  response.setHeader('Vary', 'Accept-Encoding');
+  if (request.headers?.['accept-encoding']?.includes('gzip')) {
+    response.setHeader('Content-Encoding', 'gzip');
+    response.writeHead(statusCode);
+    response.end(await gzipAsync(body));
+    return;
+  }
+  response.writeHead(statusCode);
+  response.end(body.toString());
+}
+
 export function createApi({ store, logger = console.log }) {
   const parkByReference = (parks) => new Map(parks.map((park) => [park.reference, park]));
 
@@ -48,51 +67,50 @@ export function createApi({ store, logger = console.log }) {
 
     try {
       if (request.method !== 'GET') {
-        response.writeHead(405, { Allow: 'GET' });
-        response.end(JSON.stringify({ error: 'Method not allowed' }));
+        response.setHeader('Allow', 'GET');
+        await sendJson(request, response, 405, { error: 'Method not allowed' });
         return;
       }
       if (url.pathname === '/healthz') {
-        response.writeHead(200);
-        response.end(JSON.stringify({ status: 'ok' }));
+        await sendJson(request, response, 200, { status: 'ok' });
         return;
       }
       if (url.pathname === '/readyz') {
         const status = store.status();
-        response.writeHead(status.loaded ? 200 : 503);
-        response.end(JSON.stringify({ status: status.loaded ? 'ready' : 'not_ready', ...status }));
+        await sendJson(request, response, status.loaded ? 200 : 503, { status: status.loaded ? 'ready' : 'not_ready', ...status });
         return;
       }
 
       if (url.pathname === '/api/pota/unmapped') {
         const bounds = readBounds(url);
         const data = await store.getParks();
-        response.writeHead(200);
-        response.end(JSON.stringify({ type: 'FeatureCollection', features: data.parks.filter((park) => inBounds(park.latitude, park.longitude, bounds)).map(parkFeature) }));
+        const parks = store.queryParks
+          ? await store.queryParks(bounds)
+          : data.parks.filter((park) => inBounds(park.latitude, park.longitude, bounds));
+        const features = parks.map((park) => data.featuresByReference?.get(park.reference) ?? parkFeature(park));
+        await sendJson(request, response, 200, { type: 'FeatureCollection', features }, 'private, max-age=60');
         return;
       }
 
       if (url.pathname === '/api/pota/names') {
         const data = await store.getParks();
         const references = (url.searchParams.get('references') ?? '').split(',').map((reference) => reference.trim()).filter(Boolean);
-        const byReference = parkByReference(data.parks);
+        const byReference = data.byReference ?? parkByReference(data.parks);
         const names = Object.fromEntries(references.filter((reference) => byReference.has(reference)).map((reference) => [reference, byReference.get(reference).name]));
-        response.writeHead(200);
-        response.end(JSON.stringify({ names, metadata: { csvUpdatedAt: data.updatedAt, stale: store.status().stale } }));
+        await sendJson(request, response, 200, { names, metadata: { csvUpdatedAt: data.updatedAt, stale: store.status().stale } }, 'private, max-age=3600');
         return;
       }
 
       if (url.pathname === '/api/pota/spot') {
         const spots = await store.getSpots();
-        response.writeHead(200);
-        response.end(JSON.stringify(spots));
+        await sendJson(request, response, 200, spots, 'private, max-age=10');
         return;
       }
 
       if (url.pathname === '/api/pota/spots') {
         const bounds = readBounds(url);
         const data = await store.getParks();
-        const byReference = parkByReference(data.parks);
+        const byReference = data.byReference ?? parkByReference(data.parks);
         const spots = await store.getSpots();
         const features = spots.flatMap((spot) => {
           const park = byReference.get(spot.reference);
@@ -103,17 +121,14 @@ export function createApi({ store, logger = console.log }) {
             properties: { ...spot, pota_ref: park.reference, parkName: park.name, source: 'pota_spot' },
           }];
         });
-        response.writeHead(200);
-        response.end(JSON.stringify({ type: 'FeatureCollection', features, metadata: { csvUpdatedAt: data.updatedAt, stale: store.status().stale } }));
+        await sendJson(request, response, 200, { type: 'FeatureCollection', features, metadata: { csvUpdatedAt: data.updatedAt, stale: store.status().stale } }, 'private, max-age=10');
         return;
       }
 
-      response.writeHead(404);
-      response.end(JSON.stringify({ error: 'Not found' }));
+      await sendJson(request, response, 404, { error: 'Not found' });
     } catch (error) {
       const statusCode = /Query parameter|Bounding box|required|outside valid/.test(error.message) ? 400 : 502;
-      response.writeHead(statusCode);
-      response.end(JSON.stringify({ error: error.message }));
+      await sendJson(request, response, statusCode, { error: error.message });
     }
   };
 }
