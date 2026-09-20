@@ -1,0 +1,4 @@
+defaultNamespace: potamap
+keepResources: true
+correctDrift:
+  enabled: true

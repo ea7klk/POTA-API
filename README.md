@@ -32,4 +32,8 @@ Configuration is available through environment variables:
 
 ## Deployment
 
-The Kubernetes manifests deploy a `ClusterIP` service in the `potamap` namespace. There is no Ingress, LoadBalancer, or NodePort, so the API is reachable only from inside the cluster unless another existing internal component explicitly proxies it.
+Deployment is managed by Rancher Fleet, not by direct application `kubectl apply` calls. The Fleet GitRepo belongs to workspace `ea7klk`, lives in the `ea7klk` Fleet namespace, and watches `fleet/potamap`.
+
+The bootstrap definition is in [`fleet-bootstrap/gitrepo.yaml`](fleet-bootstrap/gitrepo.yaml). It is intended to be added to the cluster's Fleet bootstrap source once; Fleet then reconciles the resources from [`fleet/potamap`](fleet/potamap). The build workflow publishes the image and commits its immutable digest into the Fleet resource, which causes Fleet to roll out each new version.
+
+The resulting Service is `ClusterIP` on port 80 in the `potamap` namespace. There is no Ingress, LoadBalancer, or NodePort, so the API is reachable only from inside the cluster unless another existing internal component explicitly proxies it.

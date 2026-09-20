@@ -1,0 +1,17 @@
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: pota-api
+  namespace: ea7klk
+  labels:
+    fleet.spainip.es/workspace: ea7klk
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  repo: https://github.com/ea7klk/POTA-API.git
+  branch: main
+  paths:
+    - fleet/potamap
+  keepResources: true
+  correctDrift:
+    enabled: true

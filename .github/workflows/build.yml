@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -29,10 +29,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/pota-api:latest
             ghcr.io/${{ github.repository_owner }}/pota-api:${{ github.sha }}
+      - name: Update Fleet image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          test -n "$IMAGE_DIGEST"
+          sed -i -E "s#ghcr.io/ea7klk/pota-api@sha256:[a-f0-9]+#ghcr.io/ea7klk/pota-api@${IMAGE_DIGEST}#" fleet/potamap/resources.yaml
+          if git diff --quiet -- fleet/potamap/resources.yaml; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add fleet/potamap/resources.yaml
+          git commit -m "chore: update Fleet image digest [skip ci]"
+          git push
