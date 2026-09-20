@@ -15,7 +15,7 @@ function makeStore(spots = []) {
 }
 
 async function request(handler, path) {
-  const response = { headers: {}, setHeader(name, value) { this.headers[name] = value; }, writeHead(status) { this.status = status; }, end(body) { this.body = body; } };
+  const response = { headers: {}, setHeader(name, value) { this.headers[name] = value; }, once(event, listener) { if (event === 'finish') this.onFinish = listener; }, writeHead(status) { this.status = status; this.statusCode = status; }, end(body) { this.body = body; this.onFinish?.(); } };
   await handler({ method: 'GET', url: path }, response);
   return { ...response, json: JSON.parse(response.body) };
 }
@@ -54,4 +54,11 @@ test('cross-references spots into bbox-filtered GeoJSON', async () => {
 test('rejects incomplete bounding boxes', async () => {
   const response = await request(createApi({ store: makeStore() }), '/api/pota/unmapped?south=55&west=-3');
   assert.equal(response.status, 400);
+});
+
+test('logs a structured access event after each response', async () => {
+  const events = [];
+  await request(createApi({ store: makeStore(), logger: (event) => events.push(JSON.parse(event)) }), '/healthz');
+  assert.deepEqual(events[0], { type: 'access', method: 'GET', path: '/healthz', status: 200, durationMs: events[0].durationMs, requestId: null });
+  assert.equal(typeof events[0].durationMs, 'number');
 });

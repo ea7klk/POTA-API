@@ -27,11 +27,22 @@ function parkFeature(park) {
   };
 }
 
-export function createApi({ store }) {
+export function createApi({ store, logger = console.log }) {
   const parkByReference = (parks) => new Map(parks.map((park) => [park.reference, park]));
 
   return async function handle(request, response) {
     const url = new URL(request.url, 'http://localhost');
+    const startedAt = performance.now();
+    response.once?.('finish', () => {
+      logger(JSON.stringify({
+        type: 'access',
+        method: request.method,
+        path: url.pathname,
+        status: response.statusCode,
+        durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+        requestId: request.headers?.['x-request-id'] ?? null,
+      }));
+    });
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Content-Type', 'application/json; charset=utf-8');
 
