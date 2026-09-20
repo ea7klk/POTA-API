@@ -26,7 +26,7 @@ spec:
         - name: registry-credentials
       containers:
         - name: pota-api
-          image: ghcr.io/ea7klk/pota-api@sha256:fd2cd91e87fa5e02a0b5149360234940e932e1ce7af78eac6e887cde91b9f9bd
+          image: ghcr.io/ea7klk/pota-api@sha256:0e69a199f9a921c8322b26dd2b243a324f382c24c3bcbd23a62057c7a5a451bd
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
