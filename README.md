@@ -33,7 +33,7 @@ Configuration is available through environment variables:
 - `SPOTS_REFRESH_MS` (default `30000`, 30 seconds)
 - `SPOTS_CACHE_TTL_MS` (default `45000`, 45 seconds)
 - `REDIS_URL` (optional; Fleet uses `redis://pota-redis:6379`)
-- `REDIS_TIMEOUT_MS` (default `500`)
+- `REDIS_TIMEOUT_MS` (default `2000`)
 - `OVERPASS_URL` (default `https://api.spainip.es/v1/overpass/interpreter`)
 - `OVERPASS_TIMEOUT_MS` (default `180000`)
 - `OVERPASS_CACHE_TTL_MS` (default `43200000`, 12 hours)

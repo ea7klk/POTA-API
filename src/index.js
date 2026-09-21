@@ -7,7 +7,7 @@ import { createApi } from './api.js';
 const port = Number(process.env.PORT ?? 3000);
 const redisCache = createRedisCache({
   url: process.env.REDIS_URL,
-  timeoutMs: Number(process.env.REDIS_TIMEOUT_MS ?? 500),
+  timeoutMs: Number(process.env.REDIS_TIMEOUT_MS ?? 2000),
 });
 const store = createStore({
   parseParkCsv,

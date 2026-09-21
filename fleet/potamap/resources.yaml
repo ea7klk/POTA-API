@@ -45,7 +45,7 @@ spec:
             - name: REDIS_URL
               value: redis://pota-redis:6379
             - name: REDIS_TIMEOUT_MS
-              value: "500"
+              value: "2000"
             - name: OVERPASS_URL
               value: https://api.spainip.es/v1/overpass/interpreter
             - name: OVERPASS_TIMEOUT_MS
