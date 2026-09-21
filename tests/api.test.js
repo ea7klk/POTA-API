@@ -11,6 +11,7 @@ const parks = parseParkCsv(csv, '2026-09-20T02:00:01.921Z');
 function makeStore(spots = []) {
   return {
     getParks: async () => parks,
+    getParkStatuses: async (references) => Object.fromEntries([...new Set(references.map((reference) => reference.trim().toUpperCase()))].filter((reference) => ['GB-0001', 'GB-0002'].includes(reference)).map((reference) => [reference, { active: reference === 'GB-0001' }])),
     queryUnmappedParks: async (bounds) => parks.parks.filter((park) => park.latitude >= bounds.south && park.latitude <= bounds.north && park.longitude >= bounds.west && park.longitude <= bounds.east),
     getSpots: async () => spots,
     status: () => ({ loaded: true, csvUpdatedAt: parks.updatedAt, stale: false }),
@@ -39,6 +40,12 @@ test('returns Potamap-compatible unmapped GeoJSON', async () => {
 test('returns requested park names and metadata', async () => {
   const response = await request(createApi({ store: makeStore() }), '/api/pota/names?references=GB-0001,GB-4040');
   assert.deepEqual(response.json, { names: { 'GB-0001': 'Test Park, North' }, metadata: { csvUpdatedAt: parks.updatedAt, stale: false } });
+});
+
+test('returns active status for requested parks from the CSV-backed store', async () => {
+  const response = await request(createApi({ store: makeStore() }), '/api/pota/status?references=gb-0001,GB-0002,GB-4040');
+  assert.deepEqual(response.json, { parks: { 'GB-0001': { active: true }, 'GB-0002': { active: false } } });
+  assert.equal(response.headers['Cache-Control'], 'private, max-age=300');
 });
 
 test('returns raw spots without changing the proxy payload', async () => {

@@ -29,6 +29,13 @@ function isActivePark(park) {
   return ['1', 'true', 'yes', 'active'].includes(String(park.active ?? '').trim().toLowerCase());
 }
 
+function activeValue(park) {
+  const value = String(park.active ?? '').trim().toLowerCase();
+  if (['1', 'true', 'yes', 'active'].includes(value)) return true;
+  if (['0', 'false', 'no', 'inactive'].includes(value)) return false;
+  return null;
+}
+
 function buildParkData(parsed, osmReferences, osmReferencesUpdatedAt) {
   const byReference = new Map();
   const featuresByReference = new Map();
@@ -326,6 +333,17 @@ export function createStore({
     queryUnmappedParks: async (bounds) => {
       const data = await getParks();
       return querySpatialIndex(data, bounds, data.unmappedSpatialIndex, data.unmappedParks);
+    },
+    getParkStatuses: async (references) => {
+      const data = await getParks();
+      const byReference = new Map(data.parks.map((park) => [normalizeReference(park.reference), park]));
+      const parks = {};
+      for (const reference of [...new Set(references.map(normalizeReference).filter(Boolean))]) {
+        const park = byReference.get(reference);
+        const active = park ? activeValue(park) : null;
+        if (active !== null) parks[reference] = { active };
+      }
+      return parks;
     },
     refreshParks,
     refreshSpots,

@@ -8,6 +8,7 @@ Internal cluster service for Potamap. It maintains a local indexed copy of the P
 - `GET /readyz` — readiness check; returns `503` until the first park CSV has loaded.
 - `GET /api/pota/unmapped?south=<lat>&west=<lon>&north=<lat>&east=<lon>` — Potamap-compatible GeoJSON `FeatureCollection` of active CSV parks in the bounding box whose POTA references are not present in OpenStreetMap.
 - `GET /api/pota/names?references=GB-3333,GB-3329` — Potamap-compatible park-name map with CSV metadata.
+- `GET /api/pota/status?references=ES-0016,GB-1617,DE-0069` — current active/inactive status for known POTA references from the loaded CSV.
 - `GET /api/pota/spot` — cached proxy of `https://api.pota.app/spot`; the payload format is unchanged.
 - `GET /api/pota/spots? south=<lat>&west=<lon>&north=<lat>&east=<lon>` — enriched spot GeoJSON. The space in this example is for readability only; omit it in a real URL. The endpoint also accepts `bbox=south,west,north,east`.
 

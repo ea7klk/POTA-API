@@ -9,6 +9,13 @@ function numberParam(value, name) {
   return number;
 }
 
+function readReferences(url) {
+  return (url.searchParams.get('references') ?? '')
+    .split(',')
+    .map((reference) => reference.trim())
+    .filter(Boolean);
+}
+
 export function readBounds(url) {
   const query = url.searchParams;
   const bbox = query.get('bbox')?.split(',').map((value) => value.trim());
@@ -135,10 +142,19 @@ export function createApi({ store, logger = console.log }) {
 
       if (url.pathname === '/api/pota/names') {
         const data = await store.getParks();
-        const references = (url.searchParams.get('references') ?? '').split(',').map((reference) => reference.trim()).filter(Boolean);
+        const references = readReferences(url);
         const byReference = data.byReference ?? parkByReference(data.parks);
         const names = Object.fromEntries(references.filter((reference) => byReference.has(reference)).map((reference) => [reference, byReference.get(reference).name]));
         await sendJson(request, response, 200, { names, metadata: { csvUpdatedAt: data.updatedAt, stale: store.status().stale } }, 'private, max-age=3600');
+        return;
+      }
+
+      if (url.pathname === '/api/pota/status') {
+        if (!store.getParkStatuses) throw new Error('Park status data is not ready');
+        const references = readReferences(url);
+        if (references.length > 1000) throw new Error('Request at most 1,000 POTA references at a time');
+        const parks = await store.getParkStatuses(references);
+        await sendJson(request, response, 200, { parks }, 'private, max-age=300');
         return;
       }
 
@@ -168,7 +184,7 @@ export function createApi({ store, logger = console.log }) {
 
       await sendJson(request, response, 404, { error: 'Not found' });
     } catch (error) {
-      const statusCode = /Query parameter|Bounding box|required|outside valid/.test(error.message) ? 400 : 502;
+      const statusCode = /Query parameter|Bounding box|required|outside valid|Request at most/.test(error.message) ? 400 : 502;
       await sendJson(request, response, statusCode, { error: error.message });
     }
   };
