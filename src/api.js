@@ -32,6 +32,48 @@ function parkFeature(park) {
   };
 }
 
+function spotTimeValue(spot) {
+  const value = Date.parse(spot.spotTime ?? '');
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
+function rbnIdentity(spot) {
+  if (spot.source !== 'RBN') return null;
+  const values = [spot.reference, spot.activator, spot.frequency, spot.mode];
+  if (values.some((value) => value === undefined || value === null || String(value).trim() === '')) return null;
+  return values.map((value) => String(value).trim().toUpperCase()).join('\u001f');
+}
+
+export function deduplicateMappedSpots(spots) {
+  const seenSpotIds = new Set();
+  const rbnIndexes = new Map();
+  const result = [];
+
+  for (const spot of spots) {
+    if (spot.spotId !== undefined && spot.spotId !== null) {
+      const spotId = String(spot.spotId);
+      if (seenSpotIds.has(spotId)) continue;
+      seenSpotIds.add(spotId);
+    }
+
+    const identity = rbnIdentity(spot);
+    if (!identity) {
+      result.push(spot);
+      continue;
+    }
+
+    const existingIndex = rbnIndexes.get(identity);
+    if (existingIndex === undefined) {
+      rbnIndexes.set(identity, result.length);
+      result.push(spot);
+    } else if (spotTimeValue(spot) > spotTimeValue(result[existingIndex])) {
+      result[existingIndex] = spot;
+    }
+  }
+
+  return result;
+}
+
 async function sendJson(request, response, statusCode, payload, cacheControl = 'no-store') {
   const body = Buffer.from(JSON.stringify(payload));
   response.setHeader('Cache-Control', cacheControl);
@@ -111,7 +153,7 @@ export function createApi({ store, logger = console.log }) {
         const bounds = readBounds(url);
         const data = await store.getParks();
         const byReference = data.byReference ?? parkByReference(data.parks);
-        const spots = await store.getSpots();
+        const spots = deduplicateMappedSpots(await store.getSpots());
         const features = spots.flatMap((spot) => {
           const park = byReference.get(spot.reference);
           if (!park || !inBounds(park.latitude, park.longitude, bounds)) return [];

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gunzipSync } from 'node:zlib';
 import { parseParkCsv } from '../src/csv.js';
-import { createApi } from '../src/api.js';
+import { createApi, deduplicateMappedSpots } from '../src/api.js';
 import { createStore } from '../src/store.js';
 
 const csv = `"reference","name","active","entityId","locationDesc","latitude","longitude","grid"\n"GB-0001","Test Park, North","1","1","GB-SCT","55.9","-3.1","IO85"\n"GB-0002","Other Park","1","2","GB-SCT","56.1","-3.2","IO85"\n`;
@@ -113,4 +113,34 @@ test('uses the spatial index for bounding-box park queries', async () => {
   await store.refreshParks();
   const result = await store.queryParks({ south: 55.8, west: -3.2, north: 56, east: -3 });
   assert.deepEqual(result.map((park) => park.reference), ['GB-0001']);
+});
+
+test('deduplicates mapped RBN spots by activity and keeps the newest report', () => {
+  const spots = [
+    { spotId: 1, spotTime: '2026-09-21T05:00:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'RBN', spotter: 'OLD-#' },
+    { spotId: 2, spotTime: '2026-09-21T06:00:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'RBN', spotter: 'NEW-#' },
+    { spotId: 3, spotTime: '2026-09-21T05:30:00', activator: 'EA7KLK', frequency: '14074.0', mode: 'FT8', reference: 'GB-0001', source: 'RBN' },
+    { spotId: 4, spotTime: '2026-09-21T05:00:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'Web' },
+    { spotId: 5, spotTime: '2026-09-21T05:01:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'Web' },
+    { spotId: 6, spotTime: '2026-09-21T05:02:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'GT' },
+    { spotId: 7, spotTime: '2026-09-21T05:03:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'RBN' },
+    { spotId: 7, spotTime: '2026-09-21T06:03:00', activator: 'DIFFERENT', frequency: '144300', mode: 'FM', reference: 'GB-0002', source: 'Web' },
+  ];
+
+  const result = deduplicateMappedSpots(spots);
+  assert.deepEqual(result.map((spot) => spot.spotId), [2, 3, 4, 5, 6]);
+  assert.equal(result[0].spotter, 'NEW-#');
+});
+
+test('mapped spots apply deduplication while raw proxy remains unchanged', async () => {
+  const spots = [
+    { spotId: 1, spotTime: '2026-09-21T05:00:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'RBN' },
+    { spotId: 2, spotTime: '2026-09-21T06:00:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'RBN' },
+    { spotId: 3, spotTime: '2026-09-21T05:30:00', activator: 'EA7KLK', frequency: '7034.0', mode: 'CW', reference: 'GB-0001', source: 'Web' },
+  ];
+  const handler = createApi({ store: makeStore(spots) });
+  const mapped = await request(handler, '/api/pota/spots?bbox=55.8,-3.2,56,-3');
+  const raw = await request(handler, '/api/pota/spot');
+  assert.deepEqual(mapped.json.features.map((feature) => feature.properties.spotId), [2, 3]);
+  assert.deepEqual(raw.json, spots);
 });

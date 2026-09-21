@@ -13,6 +13,8 @@ Internal cluster service for Potamap. It maintains a local indexed copy of the P
 
 The enriched spot endpoint cross-references each spot's `reference` against the local park CSV, adds park coordinates and names to feature properties, and applies the bbox to the matched park location. Spots with a reference not present in the CSV are omitted from the mapped GeoJSON response.
 
+Mapped spots use `spotId` as the primary uniqueness key. RBN records are additionally reduced to the newest report for each `reference + activator + frequency + mode` activity key. Web and GT records remain separate.
+
 ## Local development
 
 ```sh
