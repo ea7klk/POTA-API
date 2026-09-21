@@ -1,5 +1,7 @@
 import net from 'node:net';
 
+const REDIS_ERROR = {};
+
 function encodeCommand(parts) {
   const buffers = [Buffer.from(`*${parts.length}\r\n`)];
   for (const part of parts) {
@@ -57,18 +59,23 @@ export function createRedisCache({ url, timeoutMs = 500, logger = console.error 
   const host = parsed.hostname;
   const port = Number(parsed.port || 6379);
 
-  async function run(command) {
+  async function run(command, errorValue = null) {
     try {
       return await executeCommand(host, port, command, timeoutMs);
     } catch (error) {
       logger(`Redis command failed: ${error.message}`);
-      return null;
+      return errorValue;
     }
   }
 
   return {
     get: (key) => run(['GET', key]),
     set: (key, value, ttlMs) => run(['SET', key, value, 'EX', Math.max(1, Math.ceil(ttlMs / 1000))]),
+    setIfAbsent: async (key, value, ttlMs) => {
+      const result = await run(['SET', key, value, 'NX', 'EX', Math.max(1, Math.ceil(ttlMs / 1000))], REDIS_ERROR);
+      return result === REDIS_ERROR ? undefined : result === 'OK';
+    },
+    del: (key) => run(['DEL', key]),
     close: async () => {},
   };
 }

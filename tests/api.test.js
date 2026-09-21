@@ -11,6 +11,7 @@ const parks = parseParkCsv(csv, '2026-09-20T02:00:01.921Z');
 function makeStore(spots = []) {
   return {
     getParks: async () => parks,
+    queryUnmappedParks: async (bounds) => parks.parks.filter((park) => park.latitude >= bounds.south && park.latitude <= bounds.north && park.longitude >= bounds.west && park.longitude <= bounds.east),
     getSpots: async () => spots,
     status: () => ({ loaded: true, csvUpdatedAt: parks.updatedAt, stale: false }),
   };
@@ -109,10 +110,39 @@ test('loads a fresh spot payload from Redis before using the upstream API', asyn
 });
 
 test('uses the spatial index for bounding-box park queries', async () => {
-  const store = createStore({ parseParkCsv, fetchImpl: async () => ({ ok: true, text: async () => csv }) });
+  const store = createStore({
+    parseParkCsv,
+    fetchImpl: async (url) => url.includes('overpass')
+      ? { ok: true, json: async () => ({ elements: [{ tags: { 'communication:amateur_radio:pota': 'GB-0001' } }] }) }
+      : { ok: true, text: async () => csv },
+  });
   await store.refreshParks();
   const result = await store.queryParks({ south: 55.8, west: -3.2, north: 56, east: -3 });
   assert.deepEqual(result.map((park) => park.reference), ['GB-0001']);
+});
+
+test('builds unmapped data from active CSV parks absent from the OSM reference index', async () => {
+  const store = createStore({
+    parseParkCsv,
+    fetchImpl: async (url) => url.includes('overpass')
+      ? { ok: true, json: async () => ({ elements: [{ tags: { 'communication:amateur_radio:pota': 'GB-0001' } }] }) }
+      : { ok: true, text: async () => csv },
+  });
+  await store.refreshParks();
+  const result = await store.queryUnmappedParks({ south: 55, west: -4, north: 57, east: -2 });
+  assert.deepEqual(result.map((park) => park.reference), ['GB-0002']);
+  assert.equal(store.status().osmReferencesCount, 1);
+});
+
+test('does not become ready when Overpass returns no POTA references', async () => {
+  const store = createStore({
+    parseParkCsv,
+    fetchImpl: async (url) => url.includes('overpass')
+      ? { ok: true, json: async () => ({ elements: [] }) }
+      : { ok: true, text: async () => csv },
+  });
+  await assert.rejects(store.refreshParks(), /empty POTA reference index/);
+  assert.equal(store.status().loaded, false);
 });
 
 test('deduplicates mapped RBN spots by activity and keeps the newest report', () => {

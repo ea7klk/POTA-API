@@ -126,9 +126,8 @@ export function createApi({ store, logger = console.log }) {
       if (url.pathname === '/api/pota/unmapped') {
         const bounds = readBounds(url);
         const data = await store.getParks();
-        const parks = store.queryParks
-          ? await store.queryParks(bounds)
-          : data.parks.filter((park) => inBounds(park.latitude, park.longitude, bounds));
+        if (!store.queryUnmappedParks) throw new Error('Unmapped park index is not ready');
+        const parks = await store.queryUnmappedParks(bounds);
         const features = parks.map((park) => data.featuresByReference?.get(park.reference) ?? parkFeature(park));
         await sendJson(request, response, 200, { type: 'FeatureCollection', features }, 'private, max-age=60');
         return;

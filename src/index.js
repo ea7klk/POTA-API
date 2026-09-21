@@ -16,6 +16,10 @@ const store = createStore({
   refreshMs: Number(process.env.PARK_REFRESH_MS ?? 6 * 60 * 60 * 1000),
   spotsRefreshMs: Number(process.env.SPOTS_REFRESH_MS ?? 30 * 1000),
   spotsCacheTtlMs: Number(process.env.SPOTS_CACHE_TTL_MS ?? 45 * 1000),
+  overpassUrl: process.env.OVERPASS_URL,
+  overpassTimeoutMs: Number(process.env.OVERPASS_TIMEOUT_MS ?? 180 * 1000),
+  overpassCacheTtlMs: Number(process.env.OVERPASS_CACHE_TTL_MS ?? 12 * 60 * 60 * 1000),
+  overpassLockTtlMs: Number(process.env.OVERPASS_LOCK_TTL_MS ?? 5 * 60 * 1000),
   redisCache,
   fetchTimeoutMs: Number(process.env.FETCH_TIMEOUT_MS ?? 20_000),
 });

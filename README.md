@@ -6,7 +6,7 @@ Internal cluster service for Potamap. It maintains a local indexed copy of the P
 
 - `GET /healthz` — liveness check.
 - `GET /readyz` — readiness check; returns `503` until the first park CSV has loaded.
-- `GET /api/pota/unmapped?south=<lat>&west=<lon>&north=<lat>&east=<lon>` — Potamap-compatible GeoJSON `FeatureCollection` of parks in the bounding box.
+- `GET /api/pota/unmapped?south=<lat>&west=<lon>&north=<lat>&east=<lon>` — Potamap-compatible GeoJSON `FeatureCollection` of active CSV parks in the bounding box whose POTA references are not present in OpenStreetMap.
 - `GET /api/pota/names?references=GB-3333,GB-3329` — Potamap-compatible park-name map with CSV metadata.
 - `GET /api/pota/spot` — cached proxy of `https://api.pota.app/spot`; the payload format is unchanged.
 - `GET /api/pota/spots? south=<lat>&west=<lon>&north=<lat>&east=<lon>` — enriched spot GeoJSON. The space in this example is for readability only; omit it in a real URL. The endpoint also accepts `bbox=south,west,north,east`.
@@ -34,9 +34,13 @@ Configuration is available through environment variables:
 - `SPOTS_CACHE_TTL_MS` (default `45000`, 45 seconds)
 - `REDIS_URL` (optional; Fleet uses `redis://pota-redis:6379`)
 - `REDIS_TIMEOUT_MS` (default `500`)
+- `OVERPASS_URL` (default `https://api.spainip.es/v1/overpass/interpreter`)
+- `OVERPASS_TIMEOUT_MS` (default `180000`)
+- `OVERPASS_CACHE_TTL_MS` (default `43200000`, 12 hours)
+- `OVERPASS_LOCK_TTL_MS` (default `300000`, five minutes)
 - `FETCH_TIMEOUT_MS` (default `20000`)
 
-Redis is deployed as a single internal ClusterIP service in the `potamap` namespace with no external route or authentication. The API continues to serve its local in-memory spot cache if Redis is unavailable, and serves the last successful spot payload if the POTA upstream is temporarily unavailable. Park reference and one-degree spatial indexes are rebuilt whenever the CSV refreshes. JSON responses are gzip-compressed when the client advertises support.
+Redis is deployed as a single internal ClusterIP service in the `potamap` namespace with no external route or authentication. The API continues to serve its local in-memory spot cache if Redis is unavailable, and serves the last successful spot payload if the POTA upstream is temporarily unavailable. On every park CSV refresh, the API performs one tag-only Overpass query for `communication:amateur_radio:pota`, caches the normalized reference set in Redis, and rebuilds the active unmapped park index. A Redis lock prevents both API replicas from issuing the same Overpass refresh. If the OSM reference index is unavailable on startup, the API stays unready rather than incorrectly returning every park as unmapped. JSON responses are gzip-compressed when the client advertises support.
 
 ## Deployment
 

@@ -46,6 +46,14 @@ spec:
               value: redis://pota-redis:6379
             - name: REDIS_TIMEOUT_MS
               value: "500"
+            - name: OVERPASS_URL
+              value: https://api.spainip.es/v1/overpass/interpreter
+            - name: OVERPASS_TIMEOUT_MS
+              value: "180000"
+            - name: OVERPASS_CACHE_TTL_MS
+              value: "43200000"
+            - name: OVERPASS_LOCK_TTL_MS
+              value: "300000"
           readinessProbe:
             httpGet:
               path: /readyz
