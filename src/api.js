@@ -96,7 +96,7 @@ async function sendJson(request, response, statusCode, payload, cacheControl = '
 }
 
 export function createApi({ store, logger = console.log }) {
-  const parkByReference = (parks) => new Map(parks.map((park) => [park.reference, park]));
+  const parkByReference = (parks) => new Map(parks.map((park) => [String(park.reference).trim().toUpperCase(), park]));
 
   return async function handle(request, response) {
     const url = new URL(request.url, 'http://localhost');
@@ -144,7 +144,10 @@ export function createApi({ store, logger = console.log }) {
         const data = await store.getParks();
         const references = readReferences(url);
         const byReference = data.byReference ?? parkByReference(data.parks);
-        const names = Object.fromEntries(references.filter((reference) => byReference.has(reference)).map((reference) => [reference, byReference.get(reference).name]));
+        const names = Object.fromEntries(references.flatMap((reference) => {
+          const park = byReference.get(reference.toUpperCase());
+          return park ? [[reference, park.name]] : [];
+        }));
         await sendJson(request, response, 200, { names, metadata: { csvUpdatedAt: data.updatedAt, stale: store.status().stale } }, 'private, max-age=3600');
         return;
       }

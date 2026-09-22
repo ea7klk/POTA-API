@@ -116,7 +116,7 @@ test('loads a fresh spot payload from Redis before using the upstream API', asyn
   assert.equal(fetches, 0);
 });
 
-test('uses the spatial index for bounding-box park queries', async () => {
+test('uses the compact park list for bounding-box park queries', async () => {
   const store = createStore({
     parseParkCsv,
     fetchImpl: async (url) => url.includes('overpass')
@@ -126,6 +126,31 @@ test('uses the spatial index for bounding-box park queries', async () => {
   await store.refreshParks();
   const result = await store.queryParks({ south: 55.8, west: -3.2, north: 56, east: -3 });
   assert.deepEqual(result.map((park) => park.reference), ['GB-0001']);
+});
+
+test('retries Overpass lock acquisition after a stale shared lock timeout', async () => {
+  let lockAttempts = 0;
+  const store = createStore({
+    parseParkCsv,
+    redisCache: {
+      get: async () => null,
+      setIfAbsent: async () => {
+        lockAttempts += 1;
+        return lockAttempts > 1;
+      },
+      set: async () => {},
+      del: async () => {},
+    },
+    overpassLockWaitMs: 0,
+    overpassLockWaitAttempts: 1,
+    fetchImpl: async (url) => url.includes('overpass')
+      ? { ok: true, json: async () => ({ elements: [{ tags: { 'communication:amateur_radio:pota': 'GB-0001' } }] }) }
+      : { ok: true, text: async () => csv },
+  });
+
+  await store.refreshParks();
+  assert.equal(lockAttempts, 2);
+  assert.equal(store.status().loaded, true);
 });
 
 test('builds unmapped data from active CSV parks absent from the OSM reference index', async () => {

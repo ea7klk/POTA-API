@@ -8,17 +8,14 @@ const DEFAULT_OVERPASS_URL = 'https://api.spainip.es/v1/overpass/interpreter';
 const DEFAULT_OVERPASS_TIMEOUT_MS = 180_000;
 const DEFAULT_OVERPASS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_OVERPASS_LOCK_TTL_MS = 5 * 60 * 1000;
-const GRID_SIZE_DEGREES = 1;
+const DEFAULT_OVERPASS_LOCK_WAIT_MS = 500;
+const DEFAULT_OVERPASS_LOCK_WAIT_ATTEMPTS = 30;
 const POTA_OSM_TAG = 'communication:amateur_radio:pota';
 
 function withTimeout(ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   return { signal: controller.signal, clear: () => clearTimeout(timer) };
-}
-
-function parkCell(latitude, longitude) {
-  return `${Math.floor(latitude / GRID_SIZE_DEGREES)}:${Math.floor(longitude / GRID_SIZE_DEGREES)}`;
 }
 
 function normalizeReference(value) {
@@ -38,50 +35,22 @@ function activeValue(park) {
 
 function buildParkData(parsed, osmReferences, osmReferencesUpdatedAt) {
   const byReference = new Map();
-  const featuresByReference = new Map();
-  const spatialIndex = new Map();
-  const unmappedSpatialIndex = new Map();
-  const unmappedParks = [];
 
   for (const park of parsed.parks) {
-    byReference.set(park.reference, park);
-    featuresByReference.set(park.reference, {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [park.longitude, park.latitude] },
-      properties: { pota_ref: park.reference, name: park.name, source: 'pota_csv' },
-    });
-    const key = parkCell(park.latitude, park.longitude);
-    const cell = spatialIndex.get(key) ?? [];
-    cell.push(park);
-    spatialIndex.set(key, cell);
-
-    if (isActivePark(park) && !osmReferences.has(normalizeReference(park.reference))) {
-      unmappedParks.push(park);
-      const unmappedCell = unmappedSpatialIndex.get(key) ?? [];
-      unmappedCell.push(park);
-      unmappedSpatialIndex.set(key, unmappedCell);
-    }
+    byReference.set(normalizeReference(park.reference), park);
   }
 
-  return { ...parsed, byReference, featuresByReference, spatialIndex, unmappedParks, unmappedSpatialIndex, osmReferencesUpdatedAt };
+  return { parks: parsed.parks, updatedAt: parsed.updatedAt, byReference, osmReferences, osmReferencesUpdatedAt };
 }
 
-function querySpatialIndex(data, bounds, index, fallbackParks) {
-  const southCell = Math.floor(bounds.south / GRID_SIZE_DEGREES);
-  const northCell = Math.floor(bounds.north / GRID_SIZE_DEGREES);
-  const westCell = Math.floor(bounds.west / GRID_SIZE_DEGREES);
-  const eastCell = Math.floor(bounds.east / GRID_SIZE_DEGREES);
-  const cellCount = (northCell - southCell + 1) * (eastCell - westCell + 1);
-  const candidates = [];
-
-  if (cellCount > 100_000) return fallbackParks;
-  for (let latitude = southCell; latitude <= northCell; latitude += 1) {
-    for (let longitude = westCell; longitude <= eastCell; longitude += 1) {
-      const cell = index.get(`${latitude}:${longitude}`);
-      if (cell) candidates.push(...cell);
-    }
-  }
-  return candidates.filter((park) => park.latitude >= bounds.south && park.latitude <= bounds.north && park.longitude >= bounds.west && park.longitude <= bounds.east);
+function queryParksInBounds(parks, bounds, predicate = () => true) {
+  return parks.filter((park) => (
+    park.latitude >= bounds.south
+    && park.latitude <= bounds.north
+    && park.longitude >= bounds.west
+    && park.longitude <= bounds.east
+    && predicate(park)
+  ));
 }
 
 export function createStore({
@@ -96,6 +65,8 @@ export function createStore({
   overpassTimeoutMs = DEFAULT_OVERPASS_TIMEOUT_MS,
   overpassCacheTtlMs = DEFAULT_OVERPASS_CACHE_TTL_MS,
   overpassLockTtlMs = DEFAULT_OVERPASS_LOCK_TTL_MS,
+  overpassLockWaitMs = DEFAULT_OVERPASS_LOCK_WAIT_MS,
+  overpassLockWaitAttempts = DEFAULT_OVERPASS_LOCK_WAIT_ATTEMPTS,
   redisCache = null,
   spotsCacheKey = 'pota:spots:v1',
   osmReferencesCacheKey = 'pota:osm:pota-references:v1',
@@ -166,10 +137,10 @@ export function createStore({
   }
 
   async function waitForOsmReferences(previousUpdatedAt) {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (let attempt = 0; attempt < overpassLockWaitAttempts; attempt += 1) {
       const cached = await readCachedOsmReferences();
       if (cached && (!previousUpdatedAt || cached.updatedAt > previousUpdatedAt)) return cached;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, overpassLockWaitMs));
     }
     return null;
   }
@@ -187,48 +158,47 @@ export function createStore({
     osmRefreshInFlight = (async () => {
       const cachedBefore = await readCachedOsmReferences();
       const previousUpdatedAt = osmReferences?.updatedAt ?? cachedBefore?.updatedAt ?? null;
-      let lockAcquired = false;
-      try {
-        if (redisCache?.setIfAbsent) {
-          const lockState = await redisCache.setIfAbsent(osmReferencesLockKey, `${process.pid}:${Date.now()}`, overpassLockTtlMs);
-          if (lockState === undefined) {
-            lockAcquired = true;
-          } else {
-            lockAcquired = lockState;
-          }
-          if (!lockAcquired) {
-            const shared = await waitForOsmReferences(previousUpdatedAt);
-            if (shared) {
-              osmReferences = shared;
-              lastOsmRefreshError = null;
-              return shared;
+      for (;;) {
+        let lockAcquired = false;
+        try {
+          if (redisCache?.setIfAbsent) {
+            const lockState = await redisCache.setIfAbsent(osmReferencesLockKey, `${process.pid}:${Date.now()}`, overpassLockTtlMs);
+            lockAcquired = lockState === undefined || lockState;
+            if (!lockAcquired) {
+              const shared = await waitForOsmReferences(previousUpdatedAt);
+              if (shared) {
+                osmReferences = shared;
+                lastOsmRefreshError = null;
+                return shared;
+              }
+              if (cachedBefore) {
+                osmReferences = cachedBefore;
+                lastOsmRefreshError = new Error('Timed out waiting for the shared Overpass reference refresh');
+                return cachedBefore;
+              }
+              continue;
             }
-            if (cachedBefore) {
-              osmReferences = cachedBefore;
-              lastOsmRefreshError = new Error('Timed out waiting for the shared Overpass reference refresh');
-              return cachedBefore;
-            }
-            throw new Error('Timed out waiting for the shared Overpass reference refresh');
           }
-        }
 
-        const references = await fetchOsmReferences();
-        const updatedAt = now();
-        const value = { references, updatedAt };
-        osmReferences = value;
-        lastOsmRefreshError = null;
-        if (redisCache) {
-          Promise.resolve(redisCache.set(osmReferencesCacheKey, JSON.stringify({ references: [...references], updatedAt: updatedAt.toISOString() }), overpassCacheTtlMs)).catch(() => {});
+          const references = await fetchOsmReferences();
+          const updatedAt = now();
+          const value = { references, updatedAt };
+          osmReferences = value;
+          lastOsmRefreshError = null;
+          if (redisCache) {
+            Promise.resolve(redisCache.set(osmReferencesCacheKey, JSON.stringify({ references: [...references], updatedAt: updatedAt.toISOString() }), overpassCacheTtlMs)).catch(() => {});
+          }
+          return value;
+        } catch (error) {
+          lastOsmRefreshError = error;
+          throw error;
+        } finally {
+          if (lockAcquired) Promise.resolve(redisCache.del(osmReferencesLockKey)).catch(() => {});
         }
-        return value;
-      } catch (error) {
-        lastOsmRefreshError = error;
-        throw error;
-      } finally {
-        if (lockAcquired) Promise.resolve(redisCache.del(osmReferencesLockKey)).catch(() => {});
-        osmRefreshInFlight = null;
       }
-    })();
+    })().finally(() => {
+      osmRefreshInFlight = null;
+    });
     return osmRefreshInFlight;
   }
 
@@ -328,18 +298,17 @@ export function createStore({
     getSpots,
     queryParks: async (bounds) => {
       const data = await getParks();
-      return querySpatialIndex(data, bounds, data.spatialIndex, data.parks);
+      return queryParksInBounds(data.parks, bounds);
     },
     queryUnmappedParks: async (bounds) => {
       const data = await getParks();
-      return querySpatialIndex(data, bounds, data.unmappedSpatialIndex, data.unmappedParks);
+      return queryParksInBounds(data.parks, bounds, (park) => isActivePark(park) && !data.osmReferences.has(normalizeReference(park.reference)));
     },
     getParkStatuses: async (references) => {
       const data = await getParks();
-      const byReference = new Map(data.parks.map((park) => [normalizeReference(park.reference), park]));
       const parks = {};
       for (const reference of [...new Set(references.map(normalizeReference).filter(Boolean))]) {
-        const park = byReference.get(reference);
+        const park = data.byReference.get(reference);
         const active = park ? activeValue(park) : null;
         if (active !== null) parks[reference] = { active };
       }

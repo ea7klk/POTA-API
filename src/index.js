@@ -26,15 +26,23 @@ const store = createStore({
 const handler = createApi({ store });
 const server = http.createServer(handler);
 
-server.listen(port, '0.0.0.0', async () => {
-  try {
-    await store.refreshParks();
-    store.start();
-    console.log(`POTA API listening on ${port}; parks updated at ${store.status().csvUpdatedAt}`);
-  } catch (error) {
-    console.error(`Unable to load POTA parks at startup: ${error.message}`);
-    process.exitCode = 1;
+async function waitForParks() {
+  let delayMs = 1_000;
+  for (;;) {
+    try {
+      return await store.refreshParks();
+    } catch (error) {
+      console.error(`Unable to load POTA parks at startup: ${error.message}; retrying in ${delayMs}ms`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 2, 30_000);
+    }
   }
+}
+
+server.listen(port, '0.0.0.0', async () => {
+  await waitForParks();
+  store.start();
+  console.log(`POTA API listening on ${port}; parks updated at ${store.status().csvUpdatedAt}`);
 });
 
 function shutdown(signal) {
